@@ -1,11 +1,12 @@
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
+from pydantic import NaiveDatetime
 from sqlmodel import Field, SQLModel
 
 
 def utc_now_naive() -> datetime:
     """Return the current UTC time as a naive datetime for MySQL DATETIME."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class Patient(SQLModel, table=True):
@@ -31,7 +32,7 @@ class Patient(SQLModel, table=True):
     )
     is_synthetic: bool = Field(default=True)
 
-    created_at: datetime = Field(
+    created_at: NaiveDatetime = Field(
         default_factory=utc_now_naive,
         nullable=False,
     )
@@ -60,7 +61,7 @@ class ExercisePlan(SQLModel, table=True):
     instructions: str = Field(max_length=2000)
     active: bool = Field(default=True)
 
-    created_at: datetime = Field(
+    created_at: NaiveDatetime = Field(
         default_factory=utc_now_naive,
         nullable=False,
     )
@@ -84,7 +85,7 @@ class SessionRecord(SQLModel, table=True):
         index=True,
     )
 
-    started_at: datetime = Field(index=True)
+    started_at: NaiveDatetime = Field(index=True)
     duration_sec: int = Field(ge=0)
     repetition_count: int = Field(ge=0)
 
@@ -103,7 +104,7 @@ class SessionRecord(SQLModel, table=True):
 
     completion_status: str = Field(max_length=20)
 
-    created_at: datetime = Field(
+    created_at: NaiveDatetime = Field(
         default_factory=utc_now_naive,
         nullable=False,
     )
@@ -142,9 +143,9 @@ class ReviewItem(SQLModel, table=True):
         max_length=2000,
     )
 
-    created_at: datetime = Field(
+    created_at: NaiveDatetime = Field(
         default_factory=utc_now_naive,
         nullable=False,
     )
 
-    reviewed_at: datetime | None = Field(default=None)
+    reviewed_at: NaiveDatetime | None = Field(default=None)

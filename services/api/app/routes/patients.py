@@ -5,8 +5,8 @@ from sqlalchemy import func, select
 from sqlmodel import Session
 
 from app.db import get_session
-from app.models import Patient, ReviewItem, SessionRecord
-from app.schemas import PatientListItem, PatientRead
+from app.models import ExercisePlan, Patient, ReviewItem, SessionRecord
+from app.schemas import ExercisePlanRead, PatientListItem, PatientRead
 
 router = APIRouter(
     prefix="/patients",
@@ -79,6 +79,47 @@ def list_patients(
         results.append(PatientListItem.model_validate(data))
 
     return results
+
+@router.get(
+    "/{patient_id}/exercise-plan",
+    response_model=ExercisePlanRead,
+)
+def get_patient_exercise_plan(
+    patient_id: int,
+    session: Annotated[Session, Depends(get_session)],
+) -> ExercisePlanRead:
+    """Retrieve the most recently created active exercise plan."""
+
+    patient = session.get(Patient, patient_id)
+
+    if patient is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    statement = (
+        select(ExercisePlan)
+        .where(
+            ExercisePlan.patient_id == patient_id,
+            ExercisePlan.active.is_(True),
+        )
+        .order_by(
+            ExercisePlan.created_at.desc(),
+            ExercisePlan.id.desc(),
+        )
+        .limit(1)
+    )
+
+    exercise_plan = session.exec(statement).scalars().first()
+
+    if exercise_plan is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No active exercise plan found",
+        )
+
+    return ExercisePlanRead.model_validate(exercise_plan)
 
 
 @router.get("/{patient_id}", response_model=PatientRead)
