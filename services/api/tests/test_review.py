@@ -311,3 +311,49 @@ def test_register_rejects_short_password(client):
     )
 
     assert response.status_code == 422
+
+
+def test_current_user_requires_authentication(client):
+    test_client, *_ = client
+
+    response = test_client.get("/auth/me")
+
+    assert response.status_code == 401
+
+
+def test_patient_can_read_own_identity(client):
+    test_client, _, _, _, patient_headers = client
+
+    response = test_client.get(
+        "/auth/me",
+        headers=patient_headers,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["id"] is not None
+    assert body["email"]
+    assert body["role"] == "patient"
+    assert body["patient_id"] is not None
+    assert body["display_name"]
+    assert body["is_active"] is True
+
+
+def test_clinician_can_read_own_identity(client):
+    test_client, _, _, clinician_headers, _ = client
+
+    response = test_client.get(
+        "/auth/me",
+        headers=clinician_headers,
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["id"] is not None
+    assert body["email"]
+    assert body["role"] == "clinician"
+    assert body["patient_id"] is None
+    assert body["display_name"] is None
+    assert body["is_active"] is True

@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.db import get_session
+from app.dependencies import get_current_user
 from app.models import Patient, User
 from app.schemas import (
     AuthenticatedUserRead,
@@ -122,3 +123,25 @@ def login(
         access_token=token,
         expires_in=settings.access_token_expire_minutes * 60,
     )
+
+
+@router.get("/me")
+def read_current_user(
+    session: Annotated[Session, Depends(get_session)],
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, int | str | bool | None]:
+    """Return the authenticated account and its linked patient profile."""
+
+    patient = None
+
+    if current_user.role == "patient" and current_user.patient_id is not None:
+        patient = session.get(Patient, current_user.patient_id)
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "role": current_user.role,
+        "patient_id": current_user.patient_id,
+        "display_name": patient.display_name if patient else None,
+        "is_active": current_user.is_active,
+    }
