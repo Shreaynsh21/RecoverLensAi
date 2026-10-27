@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlmodel import Session
 
@@ -207,6 +207,45 @@ def create_patient_session(
     session.refresh(record)
 
     return SessionRead.model_validate(record)
+
+
+@router.get(
+    "/{patient_id}/sessions",
+    response_model=list[SessionRead],
+)
+def list_patient_sessions(
+    patient_id: int,
+    session: Annotated[Session, Depends(get_session)],
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+) -> list[SessionRead]:
+    """List a patient's exercise sessions, newest first."""
+
+    patient = session.get(Patient, patient_id)
+
+    if patient is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    statement = (
+        select(SessionRecord)
+        .where(SessionRecord.patient_id == patient_id)
+        .order_by(
+            SessionRecord.started_at.desc(),
+            SessionRecord.id.desc(),
+        )
+        .offset(offset)
+        .limit(limit)
+    )
+
+    records = session.exec(statement).scalars().all()
+
+    return [
+        SessionRead.model_validate(record)
+        for record in records
+    ]
 
 
 @router.get("/{patient_id}", response_model=PatientRead)
