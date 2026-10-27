@@ -115,3 +115,18 @@ class PatientProgressRead(BaseModel):
     latest_reported_pain: int | None
     previous_reported_pain: int | None
     pain_change: int | None
+
+
+class ReviewQueueItemRead(BaseModel):
+    """Public API representation of a clinician review item."""
+
+    id: int
+    patient_id: int
+    patient_name: str
+    session_id: int | None
+    reason_code: str
+    reason: str
+    status: str
+    clinician_note: str | None
+    created_at: datetime
+    reviewed_at: datetime | None

@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from app.config import settings
 from app.db import get_session
-from app.routes import patients
+from app.routes import patients, review
 
 app = FastAPI(
     title=settings.app_name,
@@ -23,8 +23,9 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
-# Register patient endpoints.
+# Register API endpoints.
 app.include_router(patients.router)
+app.include_router(review.router)
 
 
 @app.get("/health")
