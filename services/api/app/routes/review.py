@@ -1,12 +1,12 @@
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlmodel import Session
 
 from app.db import get_session
 from app.models import Patient, ReviewItem
-from app.schemas import ReviewQueueItemRead
+from app.schemas import ReviewNoteCreate, ReviewQueueItemRead
 
 router = APIRouter(tags=["review queue"])
 
@@ -46,3 +46,48 @@ def list_review_queue(
         )
         for item, patient_name in rows
     ]
+
+@router.post(
+    "/review-queue/{review_id}/notes",
+    response_model=ReviewQueueItemRead,
+)
+def add_review_note(
+    review_id: int,
+    payload: ReviewNoteCreate,
+    session: Annotated[Session, Depends(get_session)],
+) -> ReviewQueueItemRead:
+    """Add a clinician note to an existing review item."""
+
+    review_item = session.get(ReviewItem, review_id)
+
+    if review_item is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Review item not found",
+        )
+
+    patient = session.get(Patient, review_item.patient_id)
+
+    if patient is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient associated with review item not found",
+        )
+
+    review_item.clinician_note = payload.note
+    session.add(review_item)
+    session.commit()
+    session.refresh(review_item)
+
+    return ReviewQueueItemRead(
+        id=review_item.id,
+        patient_id=review_item.patient_id,
+        patient_name=patient.display_name,
+        session_id=review_item.session_id,
+        reason_code=review_item.reason_code,
+        reason=review_item.reason,
+        status=review_item.status,
+        clinician_note=review_item.clinician_note,
+        created_at=review_item.created_at,
+        reviewed_at=review_item.reviewed_at,
+    )

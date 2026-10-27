@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class PatientRead(BaseModel):
@@ -130,3 +130,16 @@ class ReviewQueueItemRead(BaseModel):
     clinician_note: str | None
     created_at: datetime
     reviewed_at: datetime | None
+
+class ReviewNoteCreate(BaseModel):
+    """Validated request body for adding a clinician note."""
+
+    note: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("note")
+    @classmethod
+    def validate_note(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Note cannot be empty or whitespace only.")
+        return value
