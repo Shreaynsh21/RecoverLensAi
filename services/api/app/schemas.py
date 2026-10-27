@@ -163,6 +163,34 @@ class LoginRequest(BaseModel):
         return value
 
 
+class PatientRegisterRequest(BaseModel):
+    """Validated request body for public patient registration."""
+
+    display_name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=16, max_length=128)
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError("Display name cannot be empty.")
+
+        return value
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+
+        if "@" not in value or value.startswith("@") or value.endswith("@"):
+            raise ValueError("A valid email address is required.")
+
+        return value
+
+
 class TokenResponse(BaseModel):
     """Successful login response containing an access token."""
 
@@ -178,3 +206,12 @@ class AuthenticatedUserRead(BaseModel):
     email: str
     role: Literal["patient", "clinician"]
     patient_id: int | None
+
+
+class RegistrationResponse(BaseModel):
+    """Successful registration response with a token and safe user details."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    user: AuthenticatedUserRead

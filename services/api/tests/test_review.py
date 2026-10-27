@@ -218,3 +218,96 @@ def test_add_note_requires_authentication(client):
     )
 
     assert response.status_code == 401
+
+
+def test_register_patient_creates_account_and_can_login(client):
+    test_client, *_ = client
+
+    payload = {
+        "display_name": "  New Test Patient  ",
+        "email": "NEW.PATIENT@example.com",
+        "password": "registration-test-password-123",
+    }
+
+    response = test_client.post("/auth/register", json=payload)
+
+    assert response.status_code == 201
+
+    body = response.json()
+    user = body["user"]
+
+    assert user["email"] == "new.patient@example.com"
+    assert user["role"] == "patient"
+    assert user["patient_id"] is not None
+    assert user["id"] is not None
+    assert body["token_type"] == "bearer"
+    assert body["expires_in"] > 0
+    assert body["access_token"]
+
+    # The returned token should authorize this patient's own profile.
+    profile_response = test_client.get(
+        f"/patients/{user['patient_id']}",
+        headers={"Authorization": f"Bearer {body['access_token']}"},
+    )
+
+    assert profile_response.status_code == 200
+    assert profile_response.json()["display_name"] == "New Test Patient"
+
+    # The new account should also be able to log in normally.
+    login_response = test_client.post(
+        "/auth/login",
+        json={
+            "email": "new.patient@example.com",
+            "password": payload["password"],
+        },
+    )
+
+    assert login_response.status_code == 200
+    assert login_response.json()["access_token"]
+
+
+def test_register_rejects_duplicate_email(client):
+    test_client, *_ = client
+
+    response = test_client.post(
+        "/auth/register",
+        json={
+            "display_name": "Duplicate Account",
+            "email": "PATIENT@example.com",
+            "password": "another-registration-password",
+        },
+    )
+
+    assert response.status_code == 409
+
+
+def test_public_registration_cannot_create_clinician(client):
+    test_client, *_ = client
+
+    response = test_client.post(
+        "/auth/register",
+        json={
+            "display_name": "Registration Role Test",
+            "email": "role-test@example.com",
+            "password": "registration-role-test-password",
+            "role": "clinician",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["user"]["role"] == "patient"
+
+
+def test_register_rejects_short_password(client):
+    test_client, *_ = client
+
+    response = test_client.post(
+        "/auth/register",
+        json={
+            "display_name": "Short Password Test",
+            "email": "short-password@example.com",
+            "password": "short",
+        },
+    )
+
+    assert response.status_code == 422
