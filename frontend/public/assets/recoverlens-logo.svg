@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="650" height="150" viewBox="0 0 650 150" fill="none">
+  <defs>
+    <linearGradient id="mark" x1="4" y1="8" x2="112" y2="132" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#132E5C"/>
+      <stop offset=".35" stop-color="#B637B5"/>
+      <stop offset=".68" stop-color="#FF8B3D"/>
+      <stop offset="1" stop-color="#12BFA4"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="350" y1="54" x2="510" y2="90" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E84A7F"/>
+      <stop offset=".55" stop-color="#FF8B3D"/>
+      <stop offset="1" stop-color="#F5A23D"/>
+    </linearGradient>
+  </defs>
+  <!-- Minimal movement/R emblem: a flowing R-shaped ribbon with a person marker -->
+  <path d="M28 20H69C93 20 105 31 105 49C105 64 95 73 81 77L111 119H83L58 82H47V119H25V42H47V61H67C77 61 83 57 83 49C83 41 77 38 67 38H28V20Z" fill="url(#mark)"/>
+  <path d="M15 83C29 69 39 66 52 70C63 74 70 87 68 99C67 112 56 124 43 130" stroke="#13BFA4" stroke-width="6" stroke-linecap="round" fill="none"/>
+  <circle cx="100" cy="18" r="8" fill="#FF9A3C"/>
+  <path d="M41 47C52 37 65 34 76 36" stroke="#FFFFFF" stroke-opacity=".85" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="54" cy="71" r="4" fill="#F65D83"/>
+  <circle cx="49" cy="85" r="4" fill="#9A4BB5"/>
+  <circle cx="45" cy="99" r="4" fill="#397FA8"/>
+  <text x="131" y="78" font-family="Inter, Manrope, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-2.3" fill="#10243D">Recover</text>
+  <text x="337" y="78" font-family="Inter, Manrope, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-2.3" fill="url(#lens)">Lens</text>
+  <text x="466" y="78" font-family="Inter, Manrope, Arial, sans-serif" font-size="52" font-weight="800" letter-spacing="-2.3" fill="#10243D">AI</text>
+  <text x="134" y="105" font-family="Inter, Arial, sans-serif" font-size="11.5" font-weight="700" letter-spacing="3.2" fill="#536477">REHABILITATE</text>
+  <circle cx="249" cy="101" r="2.8" fill="#FF9A3C"/>
+  <text x="265" y="105" font-family="Inter, Arial, sans-serif" font-size="11.5" font-weight="700" letter-spacing="3.2" fill="#536477">TRACK</text>
+  <circle cx="331" cy="101" r="2.8" fill="#E84A7F"/>
+  <text x="347" y="105" font-family="Inter, Arial, sans-serif" font-size="11.5" font-weight="700" letter-spacing="3.2" fill="#536477">PROGRESS</text>
+</svg>
