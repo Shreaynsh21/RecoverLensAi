@@ -1,3 +1,5 @@
+from typing import Annotated
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -6,15 +8,13 @@ from sqlmodel import Session
 
 from app.config import settings
 from app.db import get_session
+from app.routes import patients
 
-
-# Create the FastAPI application.
 app = FastAPI(
     title=settings.app_name,
     debug=settings.debug,
 )
 
-# Allow requests from the local Vite frontend.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
@@ -22,6 +22,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+# Register patient endpoints.
+app.include_router(patients.router)
 
 
 @app.get("/health")
@@ -31,8 +34,8 @@ def health():
 
 
 @app.get("/ready")
-def ready(session: Session = Depends(get_session)):
-    """Check whether the API can execute a query against MySQL."""
+def ready(session: Annotated[Session, Depends(get_session)]):
+    """Check whether MySQL is reachable."""
     try:
         result = session.execute(text("SELECT 1")).scalar_one()
     except SQLAlchemyError as exc:
