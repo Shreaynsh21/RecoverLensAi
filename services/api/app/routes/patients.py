@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,8 +6,14 @@ from sqlalchemy import func, select
 from sqlmodel import Session
 
 from app.db import get_session
-from app.models import ExercisePlan, Patient, ReviewItem, SessionRecord
-from app.schemas import ExercisePlanRead, PatientListItem, PatientRead
+from app.models import ExercisePlan, Patient, ReviewItem, SessionRecord, utc_now_naive
+from app.schemas import (
+    ExercisePlanRead,
+    PatientListItem,
+    PatientRead,
+    SessionCreate,
+    SessionRead,
+)
 
 router = APIRouter(
     prefix="/patients",
@@ -24,9 +31,7 @@ def list_patients(
     latest_sessions = (
         select(
             SessionRecord.patient_id,
-            func.max(SessionRecord.started_at).label(
-                "last_session_at"
-            ),
+            func.max(SessionRecord.started_at).label("last_session_at"),
         )
         .group_by(SessionRecord.patient_id)
         .subquery()
@@ -36,9 +41,7 @@ def list_patients(
     pending_reviews = (
         select(
             ReviewItem.patient_id,
-            func.count(ReviewItem.id).label(
-                "pending_review_count"
-            ),
+            func.count(ReviewItem.id).label("pending_review_count"),
         )
         .where(ReviewItem.status == "pending")
         .group_by(ReviewItem.patient_id)
@@ -80,6 +83,7 @@ def list_patients(
 
     return results
 
+
 @router.get(
     "/{patient_id}/exercise-plan",
     response_model=ExercisePlanRead,
@@ -120,6 +124,89 @@ def get_patient_exercise_plan(
         )
 
     return ExercisePlanRead.model_validate(exercise_plan)
+
+
+@router.post(
+    "/{patient_id}/sessions",
+    response_model=SessionRead,
+    status_code=201,
+)
+def create_patient_session(
+    patient_id: int,
+    payload: SessionCreate,
+    session: Annotated[Session, Depends(get_session)],
+) -> SessionRead:
+    """Record an exercise session for a patient's active exercise plan."""
+
+    patient = session.get(Patient, patient_id)
+
+    if patient is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    exercise_plan = session.get(ExercisePlan, payload.exercise_id)
+
+    if (
+        exercise_plan is None
+        or exercise_plan.patient_id != patient_id
+        or not exercise_plan.active
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Active exercise plan not found for this patient",
+        )
+
+    # Require a timestamp with a timezone so the instant is unambiguous.
+    if payload.started_at.tzinfo is None or payload.started_at.utcoffset() is None:
+        raise HTTPException(
+            status_code=422,
+            detail="started_at must include a timezone",
+        )
+
+    started_at_utc = payload.started_at.astimezone(UTC)
+    now_utc = datetime.now(UTC)
+
+    if started_at_utc > now_utc:
+        raise HTTPException(
+            status_code=422,
+            detail="started_at cannot be in the future",
+        )
+
+    # MySQL DATETIME stores a naive datetime; normalize to UTC first.
+    started_at = started_at_utc.replace(tzinfo=None)
+
+    if (
+        payload.max_angle is not None
+        and payload.min_angle is not None
+        and payload.min_angle > payload.max_angle
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="min_angle cannot exceed max_angle",
+        )
+
+    record = SessionRecord(
+        patient_id=patient_id,
+        exercise_id=payload.exercise_id,
+        started_at=started_at,
+        duration_sec=payload.duration_sec,
+        repetition_count=payload.repetition_count,
+        max_angle=payload.max_angle,
+        min_angle=payload.min_angle,
+        tracking_quality=payload.tracking_quality,
+        visibility_ratio=payload.visibility_ratio,
+        patient_reported_pain=payload.patient_reported_pain,
+        completion_status=payload.completion_status,
+        created_at=utc_now_naive(),
+    )
+
+    session.add(record)
+    session.commit()
+    session.refresh(record)
+
+    return SessionRead.model_validate(record)
 
 
 @router.get("/{patient_id}", response_model=PatientRead)
