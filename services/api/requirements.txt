@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+pymysql
+pydantic-settings
+python-dotenv
+alembic
+pytest
+httpx
+ruff
