@@ -16,9 +16,9 @@ type LoginPageProps = {
 
 
 
-function PersonIcon() {
+function PersonIcon({ className }: { className?: string }) {
 
-  return <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="9" r="5" stroke="currentColor" strokeWidth="2"/><path d="M6 27v-3a10 10 0 0 1 20 0v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
+  return <svg className={className} viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="9" r="5" stroke="currentColor" strokeWidth="2"/><path d="M6 27v-3a10 10 0 0 1 20 0v3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/></svg>
 
 }
 
@@ -254,7 +254,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           {isSignup && role === 'patient' && <div className="field-group">
             <label htmlFor="displayName">Full name</label>
             <div className={`input-shell ${displayNameError ? 'invalid' : ''}`}>
-              <PersonIcon />
+              <PersonIcon className="field-icon" />
               <input id="displayName" name="displayName" type="text" placeholder="Your full name" autoComplete="name" required value={displayName} onChange={(e) => { setDisplayName(e.target.value); setDisplayNameError(''); setStatus('') }} />
             </div>
             <small className="field-error" id="displayNameError">{displayNameError}</small>
