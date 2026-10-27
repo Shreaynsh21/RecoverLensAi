@@ -1,4 +1,21 @@
-# Secrets and environment files
+# Node.js
+node_modules/
+dist/
+build/
+coverage/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+**/.venv/
+**/venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Environment secrets
 .env
 .env.*
 !.env.example
@@ -6,31 +23,18 @@
 **/.env.*
 !**/.env.example
 
-# Python virtual environments
-.venv/
-venv/
-**/.venv/
-**/venv/
-
-# Python generated files
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-.mypy_cache/
-
-# Local databases and data
+# Local databases
 *.db
 *.sqlite
 *.sqlite3
+
+# Uploaded files and patient data
+uploads/
+!services/api/uploads/
 services/api/uploads/*
 !services/api/uploads/.gitkeep
 
-# JavaScript dependencies and build outputs
-node_modules/
-**/node_modules/
-dist/
-**/dist/
-
-# Local editor files
+# Operating system and editor files
+.DS_Store
+Thumbs.db
 .vscode/
