@@ -84,3 +84,34 @@ class SessionRead(BaseModel):
     patient_reported_pain: int | None
     completion_status: str
     created_at: datetime
+
+
+class PatientProgressRead(BaseModel):
+    """Activity, measurement trends, and tracking quality for a patient."""
+
+    patient_id: int
+
+    # Overall activity across all recorded sessions.
+    total_sessions: int
+    total_repetitions: int
+    total_duration_sec: int
+    latest_session_at: datetime | None
+
+    # Session tracking-quality distribution.
+    good_tracking_sessions: int
+    fair_tracking_sessions: int
+    poor_tracking_sessions: int
+
+    # Angle trends from the two most recent usable measurements.
+    usable_angle_measurements: int
+    latest_max_angle: float | None
+    previous_max_angle: float | None
+    max_angle_change: float | None
+    latest_min_angle: float | None
+    previous_min_angle: float | None
+    min_angle_change: float | None
+
+    # Pain trends from the two most recent sessions with pain reports.
+    latest_reported_pain: int | None
+    previous_reported_pain: int | None
+    pain_change: int | None

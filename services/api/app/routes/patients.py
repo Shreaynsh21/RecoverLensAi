@@ -10,6 +10,7 @@ from app.models import ExercisePlan, Patient, ReviewItem, SessionRecord, utc_now
 from app.schemas import (
     ExercisePlanRead,
     PatientListItem,
+    PatientProgressRead,
     PatientRead,
     SessionCreate,
     SessionRead,
@@ -246,6 +247,125 @@ def list_patient_sessions(
         SessionRead.model_validate(record)
         for record in records
     ]
+
+
+@router.get(
+    "/{patient_id}/progress",
+    response_model=PatientProgressRead,
+)
+def get_patient_progress(
+    patient_id: int,
+    session: Annotated[Session, Depends(get_session)],
+) -> PatientProgressRead:
+    """Summarize recorded activity, measurements, and pain reports."""
+
+    patient = session.get(Patient, patient_id)
+
+    if patient is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Patient not found",
+        )
+
+    statement = (
+        select(SessionRecord)
+        .where(SessionRecord.patient_id == patient_id)
+        .order_by(
+            SessionRecord.started_at.desc(),
+            SessionRecord.id.desc(),
+        )
+    )
+    records = session.exec(statement).scalars().all()
+
+    # Include every recorded session in activity totals.
+    total_sessions = len(records)
+    total_repetitions = sum(record.repetition_count for record in records)
+    total_duration_sec = sum(record.duration_sec for record in records)
+
+    latest_session_at = records[0].started_at if records else None
+
+    good_tracking_sessions = sum(
+        record.tracking_quality == "good" for record in records
+    )
+    fair_tracking_sessions = sum(
+        record.tracking_quality == "fair" for record in records
+    )
+    poor_tracking_sessions = sum(
+        record.tracking_quality == "poor" for record in records
+    )
+
+    # Use only good-quality sessions with both angle measurements.
+    usable_angles = [
+        record
+        for record in records
+        if (
+            record.tracking_quality == "good"
+            and record.min_angle is not None
+            and record.max_angle is not None
+        )
+    ]
+
+    latest_angle = usable_angles[0] if usable_angles else None
+    previous_angle = usable_angles[1] if len(usable_angles) >= 2 else None
+
+    latest_max_angle = latest_angle.max_angle if latest_angle else None
+    previous_max_angle = previous_angle.max_angle if previous_angle else None
+    max_angle_change = (
+        latest_max_angle - previous_max_angle
+        if latest_max_angle is not None and previous_max_angle is not None
+        else None
+    )
+
+    latest_min_angle = latest_angle.min_angle if latest_angle else None
+    previous_min_angle = previous_angle.min_angle if previous_angle else None
+    min_angle_change = (
+        latest_min_angle - previous_min_angle
+        if latest_min_angle is not None and previous_min_angle is not None
+        else None
+    )
+
+    # Pain reports are independent of pose-tracking quality.
+    pain_records = [
+        record
+        for record in records
+        if record.patient_reported_pain is not None
+    ]
+
+    latest_reported_pain = (
+        pain_records[0].patient_reported_pain if pain_records else None
+    )
+    previous_reported_pain = (
+        pain_records[1].patient_reported_pain
+        if len(pain_records) >= 2
+        else None
+    )
+    pain_change = (
+        latest_reported_pain - previous_reported_pain
+        if latest_reported_pain is not None
+        and previous_reported_pain is not None
+        else None
+    )
+
+    return PatientProgressRead(
+        patient_id=patient_id,
+        total_sessions=total_sessions,
+        total_repetitions=total_repetitions,
+        total_duration_sec=total_duration_sec,
+        latest_session_at=latest_session_at,
+        good_tracking_sessions=good_tracking_sessions,
+        fair_tracking_sessions=fair_tracking_sessions,
+        poor_tracking_sessions=poor_tracking_sessions,
+        usable_angle_measurements=len(usable_angles),
+        latest_max_angle=latest_max_angle,
+        previous_max_angle=previous_max_angle,
+        max_angle_change=max_angle_change,
+        latest_min_angle=latest_min_angle,
+        previous_min_angle=previous_min_angle,
+        min_angle_change=min_angle_change,
+        latest_reported_pain=latest_reported_pain,
+        previous_reported_pain=previous_reported_pain,
+        pain_change=pain_change,
+    )
 
 
 @router.get("/{patient_id}", response_model=PatientRead)
