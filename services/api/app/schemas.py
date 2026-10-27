@@ -131,6 +131,7 @@ class ReviewQueueItemRead(BaseModel):
     created_at: datetime
     reviewed_at: datetime | None
 
+
 class ReviewNoteCreate(BaseModel):
     """Validated request body for adding a clinician note."""
 
@@ -143,3 +144,37 @@ class ReviewNoteCreate(BaseModel):
         if not value:
             raise ValueError("Note cannot be empty or whitespace only.")
         return value
+
+
+class LoginRequest(BaseModel):
+    """Credentials submitted to the login endpoint."""
+
+    email: str = Field(min_length=3, max_length=255)
+    password: str = Field(min_length=1, max_length=128)
+
+    @field_validator("email")
+    @classmethod
+    def normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+
+        if "@" not in value or value.startswith("@") or value.endswith("@"):
+            raise ValueError("A valid email address is required.")
+
+        return value
+
+
+class TokenResponse(BaseModel):
+    """Successful login response containing an access token."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class AuthenticatedUserRead(BaseModel):
+    """Safe public representation of the authenticated account."""
+
+    id: int
+    email: str
+    role: Literal["patient", "clinician"]
+    patient_id: int | None

@@ -6,7 +6,16 @@ from sqlalchemy import func, select
 from sqlmodel import Session
 
 from app.db import get_session
-from app.models import ExercisePlan, Patient, ReviewItem, SessionRecord, utc_now_naive
+from app.dependencies import require_clinician, require_patient_access
+from app.models import (
+    ClinicianPatientAssignment,
+    ExercisePlan,
+    Patient,
+    ReviewItem,
+    SessionRecord,
+    User,
+    utc_now_naive,
+)
 from app.schemas import (
     ExercisePlanRead,
     PatientListItem,
@@ -25,6 +34,7 @@ router = APIRouter(
 @router.get("", response_model=list[PatientListItem])
 def list_patients(
     session: Annotated[Session, Depends(get_session)],
+    clinician: Annotated[User, Depends(require_clinician)],
 ) -> list[PatientListItem]:
     """List patients with their latest session and pending review count."""
 
@@ -68,6 +78,13 @@ def list_patients(
             pending_reviews,
             pending_reviews.c.patient_id == Patient.id,
         )
+        .where(
+            Patient.id.in_(
+                select(ClinicianPatientAssignment.patient_id).where(
+                    ClinicianPatientAssignment.clinician_user_id == clinician.id
+                )
+            )
+        )
         .order_by(Patient.display_name, Patient.id)
     )
 
@@ -92,6 +109,7 @@ def list_patients(
 def get_patient_exercise_plan(
     patient_id: int,
     session: Annotated[Session, Depends(get_session)],
+    authorized_user: Annotated[User, Depends(require_patient_access)],
 ) -> ExercisePlanRead:
     """Retrieve the most recently created active exercise plan."""
 
@@ -136,6 +154,7 @@ def create_patient_session(
     patient_id: int,
     payload: SessionCreate,
     session: Annotated[Session, Depends(get_session)],
+    authorized_user: Annotated[User, Depends(require_patient_access)],
 ) -> SessionRead:
     """Record an exercise session for a patient's active exercise plan."""
 
@@ -217,6 +236,7 @@ def create_patient_session(
 def list_patient_sessions(
     patient_id: int,
     session: Annotated[Session, Depends(get_session)],
+    authorized_user: Annotated[User, Depends(require_patient_access)],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ) -> list[SessionRead]:
@@ -243,10 +263,7 @@ def list_patient_sessions(
 
     records = session.exec(statement).scalars().all()
 
-    return [
-        SessionRead.model_validate(record)
-        for record in records
-    ]
+    return [SessionRead.model_validate(record) for record in records]
 
 
 @router.get(
@@ -256,6 +273,7 @@ def list_patient_sessions(
 def get_patient_progress(
     patient_id: int,
     session: Annotated[Session, Depends(get_session)],
+    authorized_user: Annotated[User, Depends(require_patient_access)],
 ) -> PatientProgressRead:
     """Summarize recorded activity, measurements, and pain reports."""
 
@@ -326,23 +344,18 @@ def get_patient_progress(
 
     # Pain reports are independent of pose-tracking quality.
     pain_records = [
-        record
-        for record in records
-        if record.patient_reported_pain is not None
+        record for record in records if record.patient_reported_pain is not None
     ]
 
     latest_reported_pain = (
         pain_records[0].patient_reported_pain if pain_records else None
     )
     previous_reported_pain = (
-        pain_records[1].patient_reported_pain
-        if len(pain_records) >= 2
-        else None
+        pain_records[1].patient_reported_pain if len(pain_records) >= 2 else None
     )
     pain_change = (
         latest_reported_pain - previous_reported_pain
-        if latest_reported_pain is not None
-        and previous_reported_pain is not None
+        if latest_reported_pain is not None and previous_reported_pain is not None
         else None
     )
 
@@ -372,6 +385,7 @@ def get_patient_progress(
 def get_patient(
     patient_id: int,
     session: Annotated[Session, Depends(get_session)],
+    authorized_user: Annotated[User, Depends(require_patient_access)],
 ) -> PatientRead:
     """Retrieve a single patient or return 404."""
 

@@ -5,7 +5,13 @@ from sqlalchemy import select
 from sqlmodel import Session
 
 from app.db import get_session
-from app.models import Patient, ReviewItem
+from app.dependencies import require_clinician
+from app.models import (
+    ClinicianPatientAssignment,
+    Patient,
+    ReviewItem,
+    User,
+)
 from app.schemas import ReviewNoteCreate, ReviewQueueItemRead
 
 router = APIRouter(tags=["review queue"])
@@ -14,6 +20,7 @@ router = APIRouter(tags=["review queue"])
 @router.get("/review-queue", response_model=list[ReviewQueueItemRead])
 def list_review_queue(
     session: Annotated[Session, Depends(get_session)],
+    clinician: Annotated[User, Depends(require_clinician)],
     status: Literal["pending", "reviewed", "dismissed"] = "pending",
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -23,7 +30,14 @@ def list_review_queue(
     statement = (
         select(ReviewItem, Patient.display_name)
         .join(Patient, ReviewItem.patient_id == Patient.id)
-        .where(ReviewItem.status == status)
+        .where(
+            ReviewItem.status == status,
+            ReviewItem.patient_id.in_(
+                select(ClinicianPatientAssignment.patient_id).where(
+                    ClinicianPatientAssignment.clinician_user_id == clinician.id
+                )
+            ),
+        )
         .order_by(ReviewItem.created_at.desc(), ReviewItem.id.desc())
         .offset(offset)
         .limit(limit)
@@ -47,6 +61,7 @@ def list_review_queue(
         for item, patient_name in rows
     ]
 
+
 @router.post(
     "/review-queue/{review_id}/notes",
     response_model=ReviewQueueItemRead,
@@ -55,6 +70,7 @@ def add_review_note(
     review_id: int,
     payload: ReviewNoteCreate,
     session: Annotated[Session, Depends(get_session)],
+    clinician: Annotated[User, Depends(require_clinician)],
 ) -> ReviewQueueItemRead:
     """Add a clinician note to an existing review item."""
 
@@ -72,6 +88,17 @@ def add_review_note(
         raise HTTPException(
             status_code=404,
             detail="Patient associated with review item not found",
+        )
+
+    assignment = session.get(
+        ClinicianPatientAssignment,
+        (clinician.id, review_item.patient_id),
+    )
+
+    if assignment is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Review item not found",
         )
 
     review_item.clinician_note = payload.note

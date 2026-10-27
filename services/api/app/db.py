@@ -5,7 +5,6 @@ from sqlmodel import Session, create_engine
 
 from app.config import settings
 
-
 # Construct the URL safely instead of parsing a raw string.
 database_url = URL.create(
     drivername="mysql+pymysql",

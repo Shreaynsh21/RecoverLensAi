@@ -1,7 +1,7 @@
 from pathlib import Path
 
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
@@ -19,6 +19,15 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:5173"
 
+    jwt_secret_key: str = Field(min_length=32)
+    access_token_expire_minutes: int = Field(default=30, gt=0, le=1440)
+
+    # Optional credentials used only by the demo seeding script.
+    demo_clinician_email: str | None = None
+    demo_clinician_password: SecretStr | None = None
+    demo_patient_email: str | None = None
+    demo_patient_password: SecretStr | None = None
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
@@ -28,9 +37,7 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         return [
-            origin.strip()
-            for origin in self.cors_origins.split(",")
-            if origin.strip()
+            origin.strip() for origin in self.cors_origins.split(",") if origin.strip()
         ]
 
 

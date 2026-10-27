@@ -1,3 +1,4 @@
+
 fastapi
 uvicorn[standard]
 sqlmodel
@@ -8,3 +9,5 @@ alembic
 pytest
 httpx
 ruff
+PyJWT>=2.10,<3
+pwdlib[argon2]>=0.2,<1

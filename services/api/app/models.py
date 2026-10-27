@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime
 
 from pydantic import NaiveDatetime
-from sqlmodel import Field, SQLModel
+from sqlmodel import CheckConstraint, Field, SQLModel
 
 
 def utc_now_naive() -> datetime:
@@ -149,3 +149,62 @@ class ReviewItem(SQLModel, table=True):
     )
 
     reviewed_at: NaiveDatetime | None = Field(default=None)
+
+
+class User(SQLModel, table=True):
+    """An authenticated patient or clinician account."""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('patient', 'clinician')",
+            name="ck_users_role",
+        ),
+    )
+
+    id: int | None = Field(default=None, primary_key=True)
+
+    email: str = Field(
+        max_length=255,
+        unique=True,
+        index=True,
+    )
+    password_hash: str = Field(max_length=255)
+
+    role: str = Field(max_length=20, index=True)
+
+    # A patient account can link to one patient record.
+    # Clinician accounts leave this field NULL.
+    patient_id: int | None = Field(
+        default=None,
+        foreign_key="patients.id",
+        unique=True,
+        index=True,
+    )
+
+    is_active: bool = Field(default=True)
+
+    created_at: NaiveDatetime = Field(
+        default_factory=utc_now_naive,
+        nullable=False,
+    )
+
+
+class ClinicianPatientAssignment(SQLModel, table=True):
+    """Explicit authorization linking clinicians to assigned patients."""
+
+    __tablename__ = "clinician_patient_assignments"
+
+    clinician_user_id: int = Field(
+        foreign_key="users.id",
+        primary_key=True,
+    )
+    patient_id: int = Field(
+        foreign_key="patients.id",
+        primary_key=True,
+    )
+
+    created_at: NaiveDatetime = Field(
+        default_factory=utc_now_naive,
+        nullable=False,
+    )
