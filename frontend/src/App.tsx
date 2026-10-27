@@ -9,7 +9,7 @@ import {
   nameFromEmail,
   type AuthenticatedUser,
 } from './api'
-import { CareProvider, useCare, type PrescriptionRequest, type SessionRecord } from './CareContext'
+import { CareProvider, useCare, type PrescriptionRequest } from './CareContext'
 import './global.css'
 import './clinical.css'
 
@@ -78,9 +78,6 @@ function AppShell() {
           patientEmail={identity.email}
           connectedClinician={connection}
           onConnectClinician={(code) => care.connectPatientToClinician(identity, code)}
-          onSessionSaved={(session: SessionRecord) =>
-            care.setSessions((old) => [...old, { ...session, patientId: identity.id, patientName: identity.name }])
-          }
           onPrescriptionSubmitted={(request: Omit<PrescriptionRequest, 'status' | 'review'>) =>
             care.setRequest({
               ...request,

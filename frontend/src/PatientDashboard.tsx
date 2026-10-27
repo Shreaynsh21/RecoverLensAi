@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
-import type { ConnectResult, PatientConnection, PrescriptionRequest, SessionRecord } from "./CareContext"
+import type { ConnectResult, PatientConnection, PrescriptionRequest } from "./CareContext"
+import {
+  getPatientExercisePlan,
+  getPatientProfile,
+  getPatientProgress,
+  getPatientSessions,
+  type ExercisePlan,
+  type PatientProfile,
+  type PatientProgress,
+  type PatientSession,
+} from "./api"
 import "./patient-dashboard.css"
 
 type PatientDashboardProps = {
@@ -9,8 +19,38 @@ type PatientDashboardProps = {
   patientEmail: string
   connectedClinician?: PatientConnection
   onConnectClinician?: (code: string) => ConnectResult
-  onSessionSaved?: (session: SessionRecord) => void
   onPrescriptionSubmitted?: (request: Omit<PrescriptionRequest, "status" | "review">) => void
+}
+
+type PatientDashboardData = {
+  profile: PatientProfile | null
+  plan: ExercisePlan | null
+  sessions: PatientSession[]
+  progress: PatientProgress | null
+  loading: boolean
+  error: string | null
+}
+
+const emptyPatientData: PatientDashboardData = {
+  profile: null,
+  plan: null,
+  sessions: [],
+  progress: null,
+  loading: true,
+  error: null,
+}
+
+function formatSessionDate(value: string | null | undefined): string {
+  if (!value) return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return "—"
+  return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(date)
+}
+
+function formatDuration(seconds: number): string {
+  const minutes = Math.floor(Math.max(0, seconds) / 60)
+  const remainingSeconds = Math.max(0, seconds) % 60
+  return minutes > 0 ? `${minutes}m ${remainingSeconds}s` : `${remainingSeconds}s`
 }
 
 type Page =
@@ -82,14 +122,17 @@ function MiniChart({ bars = false }: { bars?: boolean }) {
   return <div className="line-chart"><svg viewBox="0 0 500 150" preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#25C995" stopOpacity=".32"/><stop offset="1" stopColor="#25C995" stopOpacity="0"/></linearGradient></defs><path className="area" d="M0 125 C50 110 65 120 110 88 S180 110 220 72 S290 80 330 48 S410 62 500 20 L500 150 L0 150Z"/><path className="line" d="M0 125 C50 110 65 120 110 88 S180 110 220 72 S290 80 330 48 S410 62 500 20"/><circle cx="500" cy="20" r="6"/></svg><div className="chart-labels"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>Today</span></div></div>
 }
 
-function Orbit() {
+function Orbit({ data }: { data: PatientDashboardData }) {
+  const progress = data.progress
+  const totalSessions = progress?.total_sessions ?? 0
+  const totalRepetitions = progress?.total_repetitions ?? 0
   return <div className="orbit-wrap">
     <div className="orbit">
       <svg viewBox="0 0 220 220"><circle className="orbit-base" cx="110" cy="110" r="92"/><circle className="orbit-fill" cx="110" cy="110" r="92"/><circle className="orbit-inner" cx="110" cy="110" r="74"/></svg>
-      <div className="orbit-center"><b>68%</b><span>recovery score</span></div>
+      <div className="orbit-center"><b>{data.loading ? "…" : totalSessions}</b><span>saved sessions</span></div>
       <i className="node n1"/><i className="node n2"/><i className="node n3"/>
     </div>
-    <div className="orbit-meta"><Tag green>On track</Tag><p>Mobility is improving steadily</p><small>+8% since last week</small></div>
+    <div className="orbit-meta"><Tag green={totalSessions > 0}>{totalSessions > 0 ? "Recorded activity" : "Awaiting first session"}</Tag><p>{totalRepetitions} repetitions recorded</p><small>Based on saved backend records, not an AI recovery score</small></div>
   </div>
 }
 
@@ -97,36 +140,43 @@ function PageHead({ title, eyebrow, back, action }: { title: string; eyebrow: st
   return <header className="page-head"><div>{back && <button className="icon-btn back" onClick={back}><Icon name="back"/></button>}<div><span className="eyebrow">{eyebrow}</span><h1>{title}</h1></div></div>{action}</header>
 }
 
-function Dashboard({ go, patientName }: { go: (p: Page) => void; patientName: string }) {
+function Dashboard({ go, patientName, data }: { go: (p: Page) => void; patientName: string; data: PatientDashboardData }) {
   const [comfort, setComfort] = useState("Steady")
+  const progress = data.progress
+  const goodTrackingPercent = progress && progress.total_sessions > 0
+    ? Math.round((progress.good_tracking_sessions / progress.total_sessions) * 100)
+    : null
+  const latestAngle = progress?.latest_max_angle
+  const recentSessions = data.sessions.slice(0, 3)
+
   return <div>
-    <PageHead eyebrow="YOUR RECOVERY SPACE" title={`Good morning, ${patientName.split(" ")[0]}.`} action={<Button variant="secondary" onClick={() => go("assessment")}><Icon name="spark"/> Ask RecoverLens</Button>} />
-    <p className="intro">Your shoulder recovery is moving in the right direction. Let’s work with how your body feels today.</p>
+    <PageHead eyebrow="YOUR RECOVERY SPACE" title={`Welcome, ${(data.profile?.display_name || patientName).split(" ")[0]}.`} action={<Button variant="secondary" onClick={() => go("clinical")}><Icon name="clinical"/> Clinical care</Button>} />
+    <p className="intro">Your dashboard shows the exercise plan and activity saved to your RecoverLens account. Follow your clinician’s instructions and stop if movement causes new or worsening pain.</p>
     <section className="daily-checkin" aria-label="Daily comfort check-in">
       <div className="checkin-intro"><span className="pulse-mark"><i/><i/></span><div><span className="eyebrow">DAILY CHECK-IN</span><b>How does movement feel right now?</b></div></div>
       <div className="feeling-options">
-        {[["Comfortable","Easy range today"],["Steady","A little aware"],["Sensitive","Take it gently"]].map(([label,hint]) => <button key={label} className={comfort === label ? "active" : ""} onClick={() => setComfort(label)} aria-pressed={comfort === label}><i/><span><b>{label}</b><small>{hint}</small></span></button>)}
+        {[ ["Comfortable", "Easy range today"], ["Steady", "A little aware"], ["Sensitive", "Take it gently"] ].map(([label, hint]) => <button key={label} className={comfort === label ? "active" : ""} onClick={() => setComfort(label)} aria-pressed={comfort === label}><i/><span><b>{label}</b><small>{hint}</small></span></button>)}
       </div>
-      <span className="checkin-note">{comfort === "Sensitive" ? "We’ll keep today gentle." : comfort === "Comfortable" ? "Great — stay within a pain-free range." : "Your plan already matches this pace."}</span>
+      <span className="checkin-note">{comfort === "Sensitive" ? "Keep movement gentle and follow your clinician’s guidance." : comfort === "Comfortable" ? "Stay within a pain-free range." : "Use the plan assigned by your clinician, if one is available."}</span>
     </section>
     <section className="hero-grid">
-      <div className="card orbit-card"><div className="card-label"><Icon name="target"/> Recovery Orbit</div><Orbit/></div>
+      <div className="card orbit-card"><div className="card-label"><Icon name="target"/> Saved activity</div><Orbit data={data}/></div>
       <div className="today-card">
-        <div><Tag green>Today’s plan</Tag><h2>Build mobility,<br/>without the strain.</h2><p>18 minutes · 3 guided movements</p></div>
+        <div><Tag green={!!data.plan}>{data.plan ? "ACTIVE CLINICIAN PLAN" : "PLAN STATUS"}</Tag><h2>{data.loading ? "Loading your plan…" : data.plan?.name || "Awaiting clinician plan"}</h2><p>{data.plan ? `${data.plan.target_repetitions} target repetitions · ${data.plan.sessions_per_day} session(s) per day` : "Your assigned exercise plan will appear here after a clinician creates it."}</p></div>
         <div className="today-visual"><div className="figure"><span/><span/><span/><span/><span/></div><div className="arc"/></div>
-        <Button onClick={() => go("exercises")}><Icon name="play"/> Begin today’s session</Button>
+        <Button onClick={() => go("exercises")}><Icon name="play"/> View exercise plan</Button>
       </div>
     </section>
     <section className="mode-grid">
-      <button className="mode ai" onClick={() => go("assessment")}><span className="mode-number">01</span><div className="mode-icon"><Icon name="spark" size={24}/></div><div><small>SELF-GUIDED</small><h3>AI Recovery</h3><p>Create a demo personalised plan from your symptoms or prescription.</p></div><span className="circle-arrow"><Icon name="arrow"/></span></button>
-      <button className="mode clinical" onClick={() => go("clinical")}><span className="mode-number">02</span><div className="mode-icon"><Icon name="clinical" size={24}/></div><div><small>PHYSIOTHERAPIST-LED</small><h3>Clinical Care</h3><p>Follow your connected physiotherapist’s prescribed routine and share session data.</p></div><span className="circle-arrow"><Icon name="arrow"/></span></button>
+      <button className="mode ai" onClick={() => go("assessment")}><span className="mode-number">01</span><div className="mode-icon"><Icon name="spark" size={24}/></div><div><small>SELF-GUIDED</small><h3>AI Recovery</h3><p>Prototype concept only; it does not generate a clinically approved plan.</p></div><span className="circle-arrow"><Icon name="arrow"/></span></button>
+      <button className="mode clinical" onClick={() => go("clinical")}><span className="mode-number">02</span><div className="mode-icon"><Icon name="clinical" size={24}/></div><div><small>PHYSIOTHERAPIST-LED</small><h3>Clinical Care</h3><p>View your account identity and the plan assigned by your clinical team.</p></div><span className="circle-arrow"><Icon name="arrow"/></span></button>
     </section>
     <section className="dashboard-lower">
-      <div className="card activity"><div className="card-title"><div><span className="eyebrow">ACTIVITY</span><h3>Your week in motion</h3></div><strong>4 <small>sessions</small></strong></div><MiniChart bars/><div className="metric-row"><div><b>72</b><span>Minutes</span></div><div><b>87%</b><span>Quality</span></div><div><b>4 day</b><span>Streak</span></div></div></div>
-      <div className="card"><div className="card-title"><div><span className="eyebrow">NEXT MILESTONE</span><h3>Full overhead reach</h3></div><span className="milestone-icon"><Icon name="target"/></span></div><p className="muted">You’re 8° away from your next mobility goal.</p><div className="progress-track"><i style={{width:"76%"}}/></div><div className="progress-label"><b>142° current</b><span>Goal 150°</span></div><Button variant="ghost" onClick={() => go("insights")}>View all insights <Icon name="arrow"/></Button></div>
+      <div className="card activity"><div className="card-title"><div><span className="eyebrow">SAVED ACTIVITY</span><h3>Your recorded sessions</h3></div><strong>{data.loading ? "—" : progress?.total_sessions ?? 0} <small>sessions</small></strong></div><div className="metric-row"><div><b>{data.loading ? "—" : Math.round((progress?.total_duration_sec ?? 0) / 60)}</b><span>Minutes recorded</span></div><div><b>{data.loading ? "—" : progress?.total_repetitions ?? 0}</b><span>Repetitions recorded</span></div><div><b>{data.loading ? "—" : goodTrackingPercent === null ? "—" : `${goodTrackingPercent}%`}</b><span>Good tracking</span></div></div><small className="muted">These values come from saved API records. Movement tracking is not simulated.</small></div>
+      <div className="card"><div className="card-title"><div><span className="eyebrow">LATEST MEASUREMENT</span><h3>Movement range</h3></div><span className="milestone-icon"><Icon name="target"/></span></div>{latestAngle !== null && latestAngle !== undefined ? <><p className="muted">Latest recorded maximum angle from a good-tracking session.</p><div className="progress-label"><b>{latestAngle.toFixed(1)}°</b><span>{progress?.max_angle_change == null ? "No comparison yet" : `${progress.max_angle_change > 0 ? "+" : ""}${progress.max_angle_change.toFixed(1)}° vs previous`}</span></div></> : <p className="muted">No reliable angle measurement is available yet. Values appear only when a saved session contains angle measurements rated with good tracking quality.</p>}<Button variant="ghost" onClick={() => go("progress")}>View progress <Icon name="arrow"/></Button></div>
     </section>
     <section className="recent"><div className="section-head"><div><span className="eyebrow">HISTORY</span><h2>Recent sessions</h2></div><button onClick={() => go("progress")}>View progress <Icon name="arrow"/></button></div>
-      <div className="session-row"><div className="session-date"><b>21</b><span>JUN</span></div><div className="session-play"><Icon name="play"/></div><div><b>Shoulder mobility routine</b><span>18 min · 3 exercises</span></div><Tag green>92% quality</Tag><span className="submitted"><Icon name="check"/> Completed</span></div>
+      {data.loading ? <p role="status">Loading saved sessions…</p> : recentSessions.length ? recentSessions.map(session => <div className="session-row" key={session.id}><div className="session-date"><b>{new Date(session.started_at).getDate()}</b><span>{new Date(session.started_at).toLocaleDateString("en-IN", { month: "short" }).toUpperCase()}</span></div><div className="session-play"><Icon name="play"/></div><div><b>{data.plan?.name || `Exercise session #${session.exercise_id}`}</b><span>{formatDuration(session.duration_sec)} · {session.repetition_count} repetitions · {formatSessionDate(session.started_at)}</span></div><Tag green={session.tracking_quality === "good"}>{session.tracking_quality} tracking</Tag><span className="submitted">{session.completion_status}</span></div>) : <div className="card"><p>No backend sessions have been saved yet. Once real movement measurements are available and saved, they’ll appear here.</p></div>}
     </section>
   </div>
 }
@@ -213,22 +263,15 @@ function Results({ go }: { go: (p: Page) => void }) {
   </div>
 }
 
-function Exercises({ go }: { go: (p: Page) => void }) {
+function Exercises({ go, data }: { go: (p: Page) => void; data: PatientDashboardData }) {
+  const plan = data.plan
   return <div>
-    <PageHead eyebrow="AI RECOVERY · WEEK 2" title="Your exercise plan" action={<Tag green>3 of 4 sessions</Tag>}/>
-    <p className="intro">Watch the demonstrations for your prescribed movements, then use the camera preview for your session. Follow your clinician-approved routine and stop if discomfort increases.</p>
-    <div className="plan-banner"><div><Tag>TODAY · SESSION 4</Tag><h2>Mobility & control</h2><p>3 exercises · 18 minutes · Moderate intensity</p></div><div className="plan-progress"><b>75%</b><span>Weekly plan</span></div><Button onClick={() => go("live")}><Icon name="play"/> Start camera session</Button></div>
-    <div className="exercise-demo-grid">
-      {exercises.map((x, i) => <article className="exercise-demo-card card" key={x.name}>
-        <div className={`exercise-demo-thumb ${x.tone}`}><span>{String(i+1).padStart(2,"0")}</span><div className="mini-person"><i/><i/><i/></div></div>
-        <div className="exercise-demo-heading"><div><Tag>{x.level}</Tag><h3>{x.name}</h3><p>{x.area} · {x.sets} sets × {x.reps} reps · {x.duration}</p></div></div>
-        <div className="exercise-embed-wrap"><iframe src={x.videoUrl} title={`${x.name} demonstration`} loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen /></div>
-        <p className="exercise-demo-instructions">{x.instructions}</p>
-        <div className="exercise-demo-source">Video source: <a href={x.videoPage} target="_blank" rel="noreferrer">{x.videoSource} ↗</a></div>
-        <div className="exercise-demo-actions"><Button variant="secondary" onClick={() => go("exercise")}>View instructions</Button><Button onClick={() => go("live")}><Icon name="camera"/> Monitor with camera</Button></div>
-      </article>)}
-    </div>
-    <div className="notice exercise-safety-notice"><Icon name="shield"/><div><b>Exercise safety</b><span>These videos are demonstrations, not a personalized treatment recommendation. Follow the exercises prescribed for you by your physiotherapist and stop if pain or instability increases.</span></div></div>
+    <PageHead eyebrow="CLINICIAN-ASSIGNED CARE" title={plan?.name || "Exercise plan"} action={<Tag green={!!plan}>{plan ? "Plan active" : "Awaiting plan"}</Tag>} />
+    {data.loading ? <div className="notice" role="status"><Icon name="clock"/><div><b>Loading your assigned plan</b><span>Checking the plan saved for your account.</span></div></div> : plan ? <>
+      <p className="intro">This is the active plan returned by the backend. Follow the instructions provided by your clinician and ask them before changing repetitions or frequency.</p>
+      <div className="plan-banner"><div><Tag green>ACTIVE PLAN</Tag><h2>{plan.name}</h2><p>{plan.target_repetitions} target repetitions · {plan.sessions_per_day} session(s) per day</p><p>{plan.instructions}</p><small>Target angle range: start maximum {plan.start_max}° · target minimum {plan.target_min}°</small></div><div className="plan-progress"><b>{plan.active ? "Active" : "Inactive"}</b><span>Backend plan status</span></div><Button disabled={!plan.active} onClick={() => go("live")}><Icon name="camera"/> Open camera preview</Button></div>
+    </> : <div className="notice" role="status"><Icon name="clinical"/><div><b>No active exercise plan yet</b><span>Your account is registered, but a clinician has not assigned an active plan. The generic demonstrations shown in the prototype are not a personalized prescription. Please wait for your clinician’s instructions before starting exercises.</span></div></div>}
+    <div className="notice exercise-safety-notice"><Icon name="shield"/><div><b>Session tracking status</b><span>The camera page currently provides a camera preview only. It does not count repetitions or calculate joint angles, and this screen does not save a session until measured tracking data is connected.</span></div></div>
   </div>
 }
 
@@ -295,7 +338,7 @@ function Live({ go, onLogout }: { go: (p: Page) => void; onLogout?: () => void }
   }
   const formatTime = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`
 
-  return <div className="live-page"><div className="live-top"><button onClick={() => { stopCamera(); go("exercise") }}><Icon name="back"/> Exit</button><div><i className={stream ? "camera-live-dot" : ""}/> {stream ? "LIVE CAMERA PREVIEW" : "CAMERA NOT CONNECTED"}</div><span>Exercise 1 of 3</span>{onLogout && <button className="patient-live-logout" onClick={() => { stopCamera(); onLogout() }}>Sign out</button>}</div>
+  return <div className="live-page"><div className="live-top"><button onClick={() => { stopCamera(); go("exercises") }}><Icon name="back"/> Exit</button><div><i className={stream ? "camera-live-dot" : ""}/> {stream ? "LIVE CAMERA PREVIEW" : "CAMERA NOT CONNECTED"}</div><span>Exercise 1 of 3</span>{onLogout && <button className="patient-live-logout" onClick={() => { stopCamera(); onLogout() }}>Sign out</button>}</div>
     <div className="live-grid"><div className={`camera ${stream ? "camera-active" : "camera-idle"}`}>
       <video ref={videoRef} className={`camera-video ${stream ? "visible" : ""}`} autoPlay playsInline muted aria-label="Live camera preview for exercise positioning" />
       {!stream && <div className="camera-placeholder"><div className="camera-placeholder-icon"><Icon name="camera" size={38}/></div><h2>Position yourself in frame</h2><p>Enable your camera to preview your movement. Movement analysis connects to the backend separately.</p><Button onClick={startCamera}><Icon name="camera"/> Enable camera</Button></div>}
@@ -307,21 +350,24 @@ function Live({ go, onLogout }: { go: (p: Page) => void; onLogout?: () => void }
     </div></div>
 }
 
-function Summary({ go, onSessionSaved, patientName, connectedClinician }: { go: (p: Page) => void; onSessionSaved?: (session: SessionRecord) => void; patientName: string; connectedClinician?: PatientConnection }) {
-  const [submitted, setSubmitted] = useState(false)
-  return <div className="narrow summary"><div className="success-mark"><Icon name="check" size={34}/></div><Tag green>SESSION COMPLETE</Tag><h1>Well done, {patientName.split(" ")[0]}.</h1><p>Your camera preview session is complete. The backend will provide repetition counts, joint angles, and movement-quality metrics when connected.</p>
-    <div className="summary-score"><div className="score-ring large"><b>—</b><span>awaiting backend</span></div><div><span className="eyebrow">SESSION SUMMARY</span><h2>Your session is ready to record.</h2><p>No movement metrics have been fabricated. Real measurements will appear here when the pose-estimation service is integrated.</p></div></div>
-    <div className="summary-metrics"><div><Icon name="move"/><b>—</b><span>Repetitions · backend</span></div><div><Icon name="clock"/><b>—</b><span>Duration · session data</span></div><div><Icon name="target"/><b>—</b><span>Joint angle · backend</span></div><div><Icon name="chart"/><b>Awaiting</b><span>Movement quality</span></div></div>
-    <div className="submit-card"><div><Icon name="clinical"/><span><b>{connectedClinician ? `Share with ${connectedClinician.clinicianName}` : "Connect a physiotherapist first"}</b>{connectedClinician ? `Session summary for ${connectedClinician.clinicianName} is ready to submit for demo review.` : "Open Clinical Care and enter your physiotherapist's connection code before sharing session records."}</span></div><Button variant="secondary" disabled={!connectedClinician} onClick={() => { onSessionSaved?.({ exercise: "Camera exercise session", reps: 0, pain: null, reviewed: false }); setSubmitted(true) }}>{submitted ? "Submitted for review" : "Submit for review"}</Button>{submitted && <small className="submit-confirmation">Session record saved to the clinician demo review queue. Metrics are pending backend integration.</small>}</div>
-    <div className="center-actions"><Button variant="secondary" onClick={() => go("dashboard")}>Back to dashboard</Button><Button onClick={() => go("progress")}>View progress <Icon name="arrow"/></Button></div>
+function Summary({ go, patientName }: { go: (p: Page) => void; patientName: string }) {
+  return <div className="narrow summary"><div className="success-mark"><Icon name="check" size={34}/></div><Tag>CAMERA PREVIEW COMPLETE</Tag><h1>Well done, {patientName.split(" ")[0]}.</h1><p>Your camera preview has ended. The current frontend does not yet run the pose tracker, so it cannot report repetitions, joint angles, or movement quality.</p>
+    <div className="summary-score"><div className="score-ring large"><b>—</b><span>not measured</span></div><div><span className="eyebrow">SESSION SUMMARY</span><h2>No session measurements were recorded.</h2><p>We do not save a placeholder session when no measurements exist. Once the tracker supplies real measurements, the app can submit them to the backend session endpoint.</p></div></div>
+    <div className="summary-metrics"><div><Icon name="move"/><b>—</b><span>Repetitions · not measured</span></div><div><Icon name="clock"/><b>—</b><span>Duration · not recorded</span></div><div><Icon name="target"/><b>—</b><span>Joint angle · not measured</span></div><div><Icon name="chart"/><b>—</b><span>Movement quality · not measured</span></div></div>
+    <div className="notice"><Icon name="shield"/><div><b>Backend session saving is not enabled yet</b><span>This camera page is preview-only. No video or fabricated movement metrics were uploaded. Your saved history and progress pages show records returned by the backend.</span></div></div>
+    <div className="center-actions"><Button variant="secondary" onClick={() => go("dashboard")}>Back to dashboard</Button><Button onClick={() => go("progress")}>View saved progress <Icon name="arrow"/></Button></div>
   </div>
 }
 
-function Progress({ go }: { go: (p: Page) => void }) {
-  return <div><PageHead eyebrow="YOUR RECOVERY" title="Progress report" action={<select className="period"><option>Last 30 days</option><option>Last 90 days</option></select>}/>
-    <div className="progress-hero"><div><span className="eyebrow">MOBILITY TREND</span><h2>Range is up <strong>18°</strong></h2><p>Steady improvement across 12 completed sessions.</p><MiniChart/></div><div className="consistency"><div className="score-ring"><b>86%</b><span>consistency</span></div><h3>Excellent rhythm</h3><p>11 of 12 planned sessions completed.</p></div></div>
-    <div className="stat-grid"><div className="card"><span>Total sessions</span><b>24</b><small>+6 this month</small></div><div className="card"><span>Active minutes</span><b>386</b><small>6h 26m total</small></div><div className="card"><span>Avg. quality</span><b>87%</b><small>Demo metric</small></div><div className="card"><span>Current streak</span><b>4 days</b><small>Personal best: 7</small></div></div>
-    <div className="history-card card"><div className="section-head"><div><span className="eyebrow">SESSION HISTORY</span><h2>Recent activity</h2></div></div>{["21 Jun","19 Jun","17 Jun","14 Jun"].map((date,i)=><div className="history-row" key={date}><span>{date}</span><div><b>{i===2?"Strength & stability":"Shoulder mobility routine"}</b><small>{16+i} min · 3 exercises</small></div><Tag green>{[92,88,85,90][i]}% quality</Tag><button onClick={()=>go("summary")}><Icon name="arrow"/></button></div>)}</div>
+function Progress({ go, data }: { go: (p: Page) => void; data: PatientDashboardData }) {
+  const progress = data.progress
+  const goodPercent = progress && progress.total_sessions > 0
+    ? Math.round((progress.good_tracking_sessions / progress.total_sessions) * 100)
+    : null
+  return <div><PageHead eyebrow="YOUR RECOVERY" title="Progress report" action={<Tag>{data.loading ? "Loading" : "Live backend data"}</Tag>}/>
+    <div className="progress-hero"><div><span className="eyebrow">MEASURED MOVEMENT</span><h2>{progress?.latest_max_angle != null ? `Latest maximum angle: ${progress.latest_max_angle.toFixed(1)}°` : "No reliable angle trend yet"}</h2><p>{progress?.usable_angle_measurements ? `Based on ${progress.usable_angle_measurements} good-tracking session(s) with angle measurements.` : "Angle trends appear only after saved sessions contain angle measurements with good tracking quality."}</p>{progress?.max_angle_change != null && <p>Change from the previous usable session: {progress.max_angle_change > 0 ? "+" : ""}{progress.max_angle_change.toFixed(1)}°.</p>}</div><div className="consistency"><div className="score-ring"><b>{data.loading ? "—" : goodPercent === null ? "—" : `${goodPercent}%`}</b><span>good tracking</span></div><h3>Tracking quality</h3><p>{progress ? `${progress.good_tracking_sessions} good · ${progress.fair_tracking_sessions} fair · ${progress.poor_tracking_sessions} poor` : "No saved tracking sessions yet."}</p></div></div>
+    <div className="stat-grid"><div className="card"><span>Total sessions</span><b>{data.loading ? "—" : progress?.total_sessions ?? 0}</b><small>Saved in the backend</small></div><div className="card"><span>Total repetitions</span><b>{data.loading ? "—" : progress?.total_repetitions ?? 0}</b><small>Across saved sessions</small></div><div className="card"><span>Active minutes</span><b>{data.loading ? "—" : Math.round((progress?.total_duration_sec ?? 0) / 60)}</b><small>Summed session duration</small></div><div className="card"><span>Latest reported pain</span><b>{data.loading ? "—" : progress?.latest_reported_pain == null ? "—" : `${progress.latest_reported_pain}/10`}</b><small>{progress?.pain_change == null ? "No pain comparison available" : `Change: ${progress.pain_change > 0 ? "+" : ""}${progress.pain_change}`}</small></div></div>
+    <div className="history-card card"><div className="section-head"><div><span className="eyebrow">SESSION HISTORY</span><h2>Recent saved activity</h2></div></div>{data.loading ? <p role="status">Loading session history…</p> : data.sessions.length ? data.sessions.map(session => <div className="history-row" key={session.id}><span>{formatSessionDate(session.started_at)}</span><div><b>{data.plan?.name || `Exercise #${session.exercise_id}`}</b><small>{formatDuration(session.duration_sec)} · {session.repetition_count} repetitions{session.patient_reported_pain == null ? "" : ` · pain ${session.patient_reported_pain}/10`}</small>{session.max_angle != null && <small>AI-estimated max angle: {session.max_angle.toFixed(1)}°</small>}</div><Tag green={session.tracking_quality === "good"}>{session.tracking_quality} tracking</Tag><button onClick={() => go("summary")} aria-label="Open session summary"><Icon name="arrow"/></button></div>) : <div className="empty-state"><Icon name="chart" size={36}/><h3>No saved sessions yet</h3><p>Recorded activity will appear here after the tracker is connected and a session with real measurements is saved.</p></div>}</div>
   </div>
 }
 
@@ -363,11 +409,13 @@ function Clinical({ go, patientId, patientName, patientEmail, connectedClinician
   </div>
 }
 
-function Profile({ go, patientId, patientName, patientEmail, connectedClinician }: { go: (p: Page) => void; patientId: string; patientName: string; patientEmail: string; connectedClinician?: PatientConnection }) {
+function Profile({ go, patientId, patientName, patientEmail, data }: { go: (p: Page) => void; patientId: string; patientName: string; patientEmail: string; data: PatientDashboardData }) {
   const initials = patientName.split(" ").map(part => part[0]).join("").slice(0,2).toUpperCase()
+  const profile = data.profile
+  const recoveryStart = profile?.recovery_start ? formatSessionDate(profile.recovery_start) : "Not recorded"
   return <div className="narrow"><PageHead eyebrow="ACCOUNT" title="Profile"/>
-    <div className="profile-hero card"><div className="profile-avatar">{initials}</div><div><h2>{patientName}</h2><p>{patientEmail} · Patient ID {patientId}</p><Tag green>Recovery plan active</Tag></div><Button variant="secondary">Edit profile</Button></div>
-    <div className="profile-grid"><div className="card profile-menu"><button onClick={()=>go("settings")}><span><Icon name="settings"/><div><b>Settings</b><small>Preferences, accessibility, privacy</small></div></span><Icon name="arrow"/></button><button onClick={()=>go("notifications")}><span><Icon name="bell"/><div><b>Notifications</b><small>Reminders and clinical updates</small></div></span><Icon name="arrow"/></button><button><span><Icon name="shield"/><div><b>Health data & consent</b><small>Manage your prototype data</small></div></span><Icon name="arrow"/></button></div><div className="card care-details"><span className="eyebrow">CARE DETAILS</span><div><span>Primary focus</span><b>Right shoulder mobility</b></div><div><span>Plan started</span><b>10 June 2025</b></div><div><span>Physiotherapist</span><b>{connectedClinician?.clinicianName || "Not connected yet"}</b></div><div><span>Patient ID</span><b>{patientId}</b></div></div></div>
+    <div className="profile-hero card"><div className="profile-avatar">{initials}</div><div><h2>{profile?.display_name || patientName}</h2><p>{patientEmail} · Patient ID {patientId}</p><Tag green={!!data.plan}>{data.plan ? "Exercise plan active" : data.loading ? "Loading plan status" : "Awaiting exercise plan"}</Tag></div><Button variant="secondary" disabled>Edit profile</Button></div>
+    <div className="profile-grid"><div className="card profile-menu"><button onClick={() => go("settings")}><span><Icon name="settings"/><div><b>Settings</b><small>Preferences and accessibility</small></div></span><Icon name="arrow"/></button><button onClick={() => go("notifications")}><span><Icon name="bell"/><div><b>Notifications</b><small>Reminder preferences (local prototype)</small></div></span><Icon name="arrow"/></button><div className="setting-row"><div><b>Health data & consent</b><span>Backend consent status: {profile?.consent_status || "not loaded"}</span></div></div></div><div className="card care-details"><span className="eyebrow">CARE DETAILS FROM BACKEND</span><div><span>Recovery pathway</span><b>{profile?.pathway || "Not set"}</b></div><div><span>Recovery start</span><b>{recoveryStart}</b></div><div><span>Assigned clinician</span><b>{profile?.clinician_name || "Not assigned"}</b></div><div><span>Consent status</span><b>{profile?.consent_status || "Unknown"}</b></div><div><span>Patient ID</span><b>{profile?.id ?? patientId}</b></div>{data.error && <small role="alert">Profile details could not be refreshed: {data.error}</small>}</div></div>
   </div>
 }
 
@@ -384,18 +432,47 @@ function Notifications({ go }: { go: (p: Page) => void }) {
   ].map((n,i)=><div className={`notification ${i===0?"unread":""}`} key={n[1]}><div className="notification-icon"><Icon name={n[0]}/></div><div><b>{n[1]}</b><p>{n[2]}</p><small>{n[3]}</small></div>{i===0&&<i/>}</div>)}</div></div>
 }
 
-export default function PatientDashboard({ onLogout, patientId, patientName, patientEmail, connectedClinician, onConnectClinician, onSessionSaved, onPrescriptionSubmitted }: PatientDashboardProps) {
+export default function PatientDashboard({ onLogout, patientId, patientName, patientEmail, connectedClinician, onConnectClinician, onPrescriptionSubmitted }: PatientDashboardProps) {
   const [page, setPage] = useState<Page>("dashboard")
   const [comfortView, setComfortView] = useState(false)
+  const [backendData, setBackendData] = useState<PatientDashboardData>(emptyPatientData)
   const mainRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const numericPatientId = Number(patientId)
+    let cancelled = false
+
+    if (!Number.isSafeInteger(numericPatientId) || numericPatientId <= 0) {
+      setBackendData({ ...emptyPatientData, loading: false, error: "The authenticated account does not have a valid patient record ID." })
+      return () => { cancelled = true }
+    }
+
+    setBackendData({ ...emptyPatientData, loading: true, error: null })
+    Promise.all([
+      getPatientProfile(numericPatientId),
+      getPatientExercisePlan(numericPatientId),
+      getPatientSessions(numericPatientId),
+      getPatientProgress(numericPatientId),
+    ])
+      .then(([profile, plan, sessions, progress]) => {
+        if (!cancelled) setBackendData({ profile, plan, sessions, progress, loading: false, error: null })
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : "Could not load patient data."
+        setBackendData({ ...emptyPatientData, loading: false, error: message })
+      })
+
+    return () => { cancelled = true }
+  }, [patientId])
   const go = (p: Page) => { setPage(p); requestAnimationFrame(()=>mainRef.current?.scrollTo({top:0,behavior:"smooth"})) }
   const navPage = page === "results" || page === "processing" ? "assessment" : page === "exercise" || page === "live" || page === "summary" ? "exercises" : page
-  const content = page === "dashboard" ? <Dashboard go={go} patientName={patientName}/> : page === "assessment" ? <Assessment go={go} onPrescriptionSubmitted={onPrescriptionSubmitted}/> : page === "processing" ? <Processing go={go}/> : page === "results" ? <Results go={go}/> : page === "exercises" ? <Exercises go={go}/> : page === "exercise" ? <ExerciseDetail go={go}/> : page === "live" ? <Live go={go} onLogout={onLogout}/> : page === "summary" ? <Summary go={go} onSessionSaved={onSessionSaved} patientName={patientName} connectedClinician={connectedClinician}/> : page === "progress" ? <Progress go={go}/> : page === "insights" ? <Insights go={go}/> : page === "clinical" ? <Clinical go={go} patientId={patientId} patientName={patientName} patientEmail={patientEmail} connectedClinician={connectedClinician} onConnectClinician={onConnectClinician}/> : page === "profile" ? <Profile go={go} patientId={patientId} patientName={patientName} patientEmail={patientEmail} connectedClinician={connectedClinician}/> : page === "settings" ? <Settings go={go}/> : <Notifications go={go}/>
+  const content = page === "dashboard" ? <Dashboard go={go} patientName={patientName} data={backendData}/> : page === "assessment" ? <Assessment go={go} onPrescriptionSubmitted={onPrescriptionSubmitted}/> : page === "processing" ? <Processing go={go}/> : page === "results" ? <Results go={go}/> : page === "exercises" ? <Exercises go={go} data={backendData}/> : page === "exercise" ? <ExerciseDetail go={go}/> : page === "live" ? <Live go={go} onLogout={onLogout}/> : page === "summary" ? <Summary go={go} patientName={patientName}/> : page === "progress" ? <Progress go={go} data={backendData}/> : page === "insights" ? <Insights go={go}/> : page === "clinical" ? <Clinical go={go} patientId={patientId} patientName={patientName} patientEmail={patientEmail} connectedClinician={connectedClinician} onConnectClinician={onConnectClinician}/> : page === "profile" ? <Profile go={go} patientId={patientId} patientName={patientName} patientEmail={patientEmail} data={backendData}/> : page === "settings" ? <Settings go={go}/> : <Notifications go={go}/>
   if (page === "live") return <div className="patient-root">{content}</div>
   return <div className="patient-root"><div className={`app-shell ${comfortView ? "comfort-view" : ""}`}>
     <button className="skip-link" onClick={() => mainRef.current?.focus()}>Skip to main content</button>
     <aside className="sidebar"><button className="brand" onClick={()=>go("dashboard")} aria-label="RecoverLens AI dashboard"><img className="dashboard-brand-logo" src="/assets/recoverlens-original-logo.png" alt="RecoverLens AI — Rehabilitate, Track, Progress" /></button><div className="sidebar-label">PATIENT PORTAL</div><nav>{nav.map(([id,icon,label])=><button key={id} className={navPage===id?"active":""} onClick={()=>go(id as Page)}><Icon name={icon}/><span>{label}</span>{id==="clinical"&&<i className="nav-dot"/>}</button>)}</nav><div className="care-team"><div className="avatar small">{connectedClinician ? connectedClinician.clinicianName.split(" ").map(part=>part[0]).join("").slice(0,2).toUpperCase() : "RL"}</div><div><small>Care team</small><b>{connectedClinician?.clinicianName || "Not connected yet"}</b></div><i className={connectedClinician ? "online" : ""}/></div><button className="help"><Icon name="shield"/><span><b>Need help?</b><small>Safety & support</small></span></button></aside>
-    <main ref={mainRef} tabIndex={-1}><div className="topbar"><button className="mobile-brand" onClick={()=>go("dashboard")} aria-label="RecoverLens AI dashboard"><img src="/assets/recoverlens-original-logo.png" alt="RecoverLens AI" /></button><div className="topbar-message"><i/><span><b>Your care space</b><small>Private · calm · at your pace</small></span></div><div className="top-actions"><button className={`readability ${comfortView ? "active" : ""}`} onClick={()=>setComfortView(!comfortView)} aria-pressed={comfortView} aria-label="Toggle larger, more readable text"><b>Aa</b><span>Comfort view</span></button><button className="icon-btn" onClick={()=>go("notifications")} aria-label="Notifications"><Icon name="bell"/><i/></button><button className="user-chip" onClick={()=>go("profile")} aria-label={`Open ${patientName} profile`}><span>{patientName.split(" ").map(part => part[0]).join("").slice(0,2).toUpperCase()}</span><div><b>{patientName}</b><small>{patientId}</small></div></button>{onLogout && <button className="patient-logout" onClick={onLogout}>Sign out</button>}</div></div><div className="content">{content}</div></main>
+    <main ref={mainRef} tabIndex={-1}><div className="topbar"><button className="mobile-brand" onClick={()=>go("dashboard")} aria-label="RecoverLens AI dashboard"><img src="/assets/recoverlens-original-logo.png" alt="RecoverLens AI" /></button><div className="topbar-message"><i/><span><b>Your care space</b><small>Private · calm · at your pace</small></span></div><div className="top-actions"><button className={`readability ${comfortView ? "active" : ""}`} onClick={()=>setComfortView(!comfortView)} aria-pressed={comfortView} aria-label="Toggle larger, more readable text"><b>Aa</b><span>Comfort view</span></button><button className="icon-btn" onClick={()=>go("notifications")} aria-label="Notifications"><Icon name="bell"/><i/></button><button className="user-chip" onClick={()=>go("profile")} aria-label={`Open ${patientName} profile`}><span>{patientName.split(" ").map(part => part[0]).join("").slice(0,2).toUpperCase()}</span><div><b>{patientName}</b><small>{patientId}</small></div></button>{onLogout && <button className="patient-logout" onClick={onLogout}>Sign out</button>}</div></div><div className="content">{backendData.loading && <div className="notice" role="status"><Icon name="clock"/><div><b>Loading your secure recovery data</b><span>Connecting to your patient profile, assigned plan, saved sessions, and progress.</span></div></div>}{backendData.error && <div className="notice" role="alert"><Icon name="shield"/><div><b>Could not load backend data</b><span>{backendData.error}. Confirm the API is running at the configured address and that this account can access its patient record.</span></div></div>}{content}</div></main>
     <nav className="bottom-nav">{nav.slice(0,5).map(([id,icon,label])=><button key={id} className={navPage===id?"active":""} onClick={()=>go(id as Page)}><Icon name={icon}/><span>{label==="Clinical Care"?"Clinical":label}</span></button>)}<button className={navPage==="profile"?"active":""} onClick={()=>go("profile")}><Icon name="user"/><span>Profile</span></button></nav>
   </div></div>
 }

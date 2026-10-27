@@ -23,6 +23,77 @@ type TokenResponse = {
   expires_in: number
 }
 
+export type PatientProfile = {
+  id: number
+  display_name: string
+  pathway: string
+  recovery_start: string | null
+  clinician_name: string | null
+  consent_status: string
+  is_synthetic: boolean
+  created_at: string
+}
+
+export type ExercisePlan = {
+  id: number
+  patient_id: number
+  name: string
+  target_repetitions: number
+  sessions_per_day: number
+  start_max: number
+  target_min: number
+  instructions: string
+  active: boolean
+  created_at: string
+}
+
+export type PatientSession = {
+  id: number
+  patient_id: number
+  exercise_id: number
+  started_at: string
+  duration_sec: number
+  repetition_count: number
+  max_angle: number | null
+  min_angle: number | null
+  tracking_quality: 'good' | 'fair' | 'poor' | string
+  visibility_ratio: number
+  patient_reported_pain: number | null
+  completion_status: string
+  created_at: string
+}
+
+export type PatientProgress = {
+  patient_id: number
+  total_sessions: number
+  total_repetitions: number
+  total_duration_sec: number
+  latest_session_at: string | null
+  good_tracking_sessions: number
+  fair_tracking_sessions: number
+  poor_tracking_sessions: number
+  usable_angle_measurements: number
+  latest_max_angle: number | null
+  previous_max_angle: number | null
+  max_angle_change: number | null
+  latest_min_angle: number | null
+  previous_min_angle: number | null
+  min_angle_change: number | null
+  latest_reported_pain: number | null
+  previous_reported_pain: number | null
+  pain_change: number | null
+}
+
+export class ApiRequestError extends Error {
+  readonly status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = status
+  }
+}
+
 async function readError(response: Response): Promise<string> {
   let body: ApiErrorBody | null = null
   try {
@@ -57,7 +128,7 @@ export async function apiRequest<T>(
     throw new Error(`Cannot reach the RecoverLens API at ${API_BASE_URL}. Start the FastAPI server and check VITE_API_BASE_URL.`)
   }
 
-  if (!response.ok) throw new Error(await readError(response))
+  if (!response.ok) throw new ApiRequestError(response.status, await readError(response))
   if (response.status === 204) return undefined as T
   return (await response.json()) as T
 }
@@ -82,6 +153,31 @@ export function clearAuthToken(): void {
 export async function getCurrentUser(token = getAuthToken()): Promise<AuthenticatedUser> {
   if (!token) throw new Error('Your session has expired. Please sign in again.')
   return apiRequest<AuthenticatedUser>('/auth/me', { method: 'GET' }, token)
+}
+
+export async function getPatientProfile(patientId: number): Promise<PatientProfile> {
+  return apiRequest<PatientProfile>(`/patients/${patientId}`, { method: 'GET' })
+}
+
+export async function getPatientExercisePlan(patientId: number): Promise<ExercisePlan | null> {
+  try {
+    return await apiRequest<ExercisePlan>(`/patients/${patientId}/exercise-plan`, { method: 'GET' })
+  } catch (error) {
+    // A new patient normally has no clinician-assigned plan yet. Treat only that
+    // specific 404 as an empty state; do not hide authorization or server errors.
+    if (error instanceof ApiRequestError && error.status === 404 && error.message === 'No active exercise plan found') {
+      return null
+    }
+    throw error
+  }
+}
+
+export async function getPatientSessions(patientId: number): Promise<PatientSession[]> {
+  return apiRequest<PatientSession[]>(`/patients/${patientId}/sessions?limit=20`, { method: 'GET' })
+}
+
+export async function getPatientProgress(patientId: number): Promise<PatientProgress> {
+  return apiRequest<PatientProgress>(`/patients/${patientId}/progress`, { method: 'GET' })
 }
 
 export async function signIn(email: string, password: string): Promise<{ token: string; user: AuthenticatedUser }> {
