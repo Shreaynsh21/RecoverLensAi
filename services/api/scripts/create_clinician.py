@@ -7,8 +7,8 @@ Clinician accounts should only be created for verified staff. Passwords are read
 interactively and are never printed or written to a file.
 """
 
-from getpass import getpass
 import re
+from getpass import getpass
 
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
@@ -16,7 +16,6 @@ from sqlmodel import Session, select
 from app.db import engine
 from app.models import ClinicianPatientAssignment, Patient, User
 from app.security import hash_password
-
 
 PLACEHOLDER_PASSWORDS = {
     "replace_with_a_unique_demo_password",
