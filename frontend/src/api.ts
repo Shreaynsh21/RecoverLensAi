@@ -63,6 +63,24 @@ export type PatientSession = {
   created_at: string
 }
 
+export type ClinicianPatient = PatientProfile & {
+  last_session_at: string | null
+  pending_review_count: number
+}
+
+export type ReviewQueueItem = {
+  id: number
+  patient_id: number
+  patient_name: string
+  session_id: number | null
+  reason_code: string
+  reason: string
+  status: string
+  clinician_note: string | null
+  created_at: string
+  reviewed_at: string | null
+}
+
 export type PatientProgress = {
   patient_id: number
   total_sessions: number
@@ -178,6 +196,24 @@ export async function getPatientSessions(patientId: number): Promise<PatientSess
 
 export async function getPatientProgress(patientId: number): Promise<PatientProgress> {
   return apiRequest<PatientProgress>(`/patients/${patientId}/progress`, { method: 'GET' })
+}
+
+export async function getClinicianPatients(): Promise<ClinicianPatient[]> {
+  return apiRequest<ClinicianPatient[]>('/patients', { method: 'GET' })
+}
+
+export async function getClinicianReviewQueue(): Promise<ReviewQueueItem[]> {
+  return apiRequest<ReviewQueueItem[]>('/review-queue', { method: 'GET' })
+}
+
+export async function saveClinicianReviewNote(
+  reviewId: number,
+  note: string,
+): Promise<ReviewQueueItem> {
+  return apiRequest<ReviewQueueItem>(`/review-queue/${reviewId}/notes`, {
+    method: 'POST',
+    body: JSON.stringify({ note: note.trim() }),
+  })
 }
 
 export async function signIn(email: string, password: string): Promise<{ token: string; user: AuthenticatedUser }> {
